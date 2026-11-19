@@ -11,10 +11,12 @@ device interface:
   requests, brightness 0..15 per channel).
 - `app/`: an Android app. `LedDevice` is the whole driver; `ledshim.c` is a 3-call native shim
   (`open`, `ioctl`, `close`) written from that description. No vendor binary is included.
-- [`docs/api.md`](docs/api.md): this app's whole external surface -- a Binder/AIDL service
-  (`PanelControlService` / `IPanelControl`), nothing else. `panel-led` itself runs no network server
-  of any kind (no MQTT, no HTTP); an external app that wants to publish the light to MQTT or Home
-  Assistant calls in through this API and does the networking on its own side.
+- [`docs/api.md`](docs/api.md): a Binder/AIDL service (`PanelControlService` / `IPanelControl`) any
+  other installed app can bind to and call, for anyone who would rather drive the light from their
+  own app than use the bridge below.
+- [`docs/mqtt-bridge.md`](docs/mqtt-bridge.md): `panel-led` publishes the light to Home Assistant
+  over MQTT itself, with discovery -- this is the normal way to use it day to day; the AIDL API
+  above is for other integrations, not required for MQTT/HA.
 
 > **Unofficial.** Not affiliated with or endorsed by any panel vendor. Provided as is, without warranty
 > (see [LICENSE](LICENSE)). It talks to a hardware device node on your own device; use it at your own
@@ -23,6 +25,11 @@ device interface:
 
 ## Versions
 
+- **0.3.0-alpha, MQTT/HA bridge.** Publishes the light to Home Assistant over MQTT with discovery
+  (`MqttBridgeService`), and adds a settings screen plus an adb-only path for the broker password.
+  See [`docs/mqtt-bridge.md`](docs/mqtt-bridge.md), including two limitations found while building
+  it. No longer a separate app from the control API, now that the signing key is ours to use
+  whenever needed -- see `docs/vendor-signing.md`.
 - **0.2.1-alpha, vendor-signed.** Signed with a platform key the vendor provided, plus
   `android:sharedUserId="android.uid.system"` in the manifest -- the exact combination their own
   apps use. Confirmed working on two panel models: every LED/relay-read call that was previously

@@ -1,6 +1,7 @@
 package app.panelled;
 
 import android.app.Activity;
+import android.content.Intent;
 import android.graphics.Typeface;
 import android.os.Bundle;
 import android.os.Handler;
@@ -40,6 +41,7 @@ public class MainActivity extends Activity {
         row.addView(btn("Cycle", this::cycle));
         row.addView(btn("Re-probe", () -> { log.setText(""); log(Probe.report()); }));
         row.addView(btn("GPIO read", this::gpioRead));
+        row.addView(btn("Bridge settings", () -> startActivity(new Intent(this, SettingsActivity.class))));
         root.addView(row);
 
         final TextView lvl = new TextView(this);

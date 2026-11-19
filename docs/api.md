@@ -1,10 +1,11 @@
 # The control API
 
-`panel-led` runs no network server of any kind -- no MQTT, no HTTP, nothing listening on a port.
-Another app on the same device (e.g. a future bridge to MQTT or Home Assistant) calls in through an
-ordinary Android bound service instead; that app does whatever networking it needs on its own, and
-`panel-led` knows nothing about it. This is a deliberate split: `panel-led` is only the hardware
-driver and its Android-level API, nothing more.
+This is `panel-led`'s inter-app surface: an ordinary Android bound service, for an installed app
+other than `panel-led` that would rather drive the light directly than go through the MQTT/HA
+bridge (`docs/mqtt-bridge.md`, the normal way to use this). The API itself runs no network code --
+when this was two apps (one signed, one not), that mattered for keeping the signed half minimal;
+now that signing is ours to do whenever needed (`docs/vendor-signing.md`), it is just the clean
+split between "drive the hardware" and "talk MQTT", not a hard requirement.
 
 ## Binding to it
 

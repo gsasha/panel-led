@@ -14,6 +14,24 @@
         android:protectionLevel="normal"
         android:label="Control the panel's side light" />
 
+    <!-- KNOWN LIMITATION, tested 2026-11-19, not a gap left by oversight: on this Android build,
+         `adb shell am broadcast -n` can reach ConfigReceiver ONLY if it is exported with NO
+         android:permission at all; exported="false" refused shell exactly like it refuses other
+         apps, and BOTH a protectionLevel="normal" and a protectionLevel="signature" permission
+         (tied to this app's own key) also refused shell, same as any other app would be refused.
+         There is no tested configuration that lets adb in while keeping every other installed app
+         out. So today, on a device with other apps installed, any of them could send this
+         broadcast too; acceptable on these panels (nothing else is installed besides Fully and
+         this app), a real gap for anyone else's device. docs/mqtt-bridge.md has the detail; fix it
+         properly before recommending this to someone whose panel runs other apps. -->
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
     <application
         android:label="Panel LED"
         android:allowBackup="false"
@@ -28,6 +46,11 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".SettingsActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+
         <!-- The IPanelControl API (docs/api.md). A caller binds with an explicit Intent naming this
              package, never an implicit one, so the action below is never matched by accident. -->
         <service
@@ -38,5 +61,28 @@
                 <action android:name="app.panelled.action.BIND_CONTROL" />
             </intent-filter>
         </service>
+
+        <!-- The MQTT bridge (docs/mqtt-bridge.md). Not started by an intent-filter; only
+             applyConfigChange() ever starts it, from SettingsActivity, ConfigReceiver or BootReceiver. -->
+        <service
+            android:name=".MqttBridgeService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <!-- Lets the broker password (and, for convenience, anything else this screen also covers)
+             be set without ever typing it on the panel's screen. No android:permission; every one
+             tried refused adb shell too, not just other apps (see the KNOWN LIMITATION comment
+             above). docs/mqtt-bridge.md has the exact commands and that limitation written out. -->
+        <receiver
+            android:name=".ConfigReceiver"
+            android:exported="true" />
+
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

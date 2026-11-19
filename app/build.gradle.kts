@@ -1,6 +1,6 @@
 // versionName is the only input; versionCode is derived (same scheme as portico-app):
 // MAJOR*1_000_000 + MINOR*10_000 + PATCH*100 + stage rank (alpha 10, beta 30, rc 50, final 90).
-val panelLedVersionName = "0.2.1-alpha"
+val panelLedVersionName = "0.3.0-alpha"
 
 fun versionCodeOf(name: String): Int {
     val m = Regex("""(\d+)\.(\d{1,2})\.(\d{1,2})(?:-(alpha|beta|rc)(?:\.(\d))?)?""").matchEntire(name)
@@ -44,4 +44,10 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+}
+
+dependencies {
+    // The only third-party dependency in this app: a plain (non-Android-service) MQTT client for
+    // MqttBridgeService. org.json is already in the Android SDK, no dependency needed for it.
+    implementation("org.eclipse.paho:org.eclipse.paho.client.mqttv3:1.2.5")
 }
