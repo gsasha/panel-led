@@ -3,6 +3,16 @@
 This project is pre-1.0; versions below `1.0.0` carry no binary-compatibility promise for the
 inter-app API (see [`docs/api.md`](docs/api.md#versioning)) and no stability promise in general.
 
+## 0.5.0-alpha -- dithered, gamma-corrected transitions
+
+0.4.0's fade sampled once per hardware level crossed (only 16 per channel), which visibly froze
+at both ends of the curve and did most of its motion in one short burst through the middle. Fades
+now sample at a fixed 1000 Hz and dither between the two hardware levels bracketing the true
+continuous target (temporal dithering, the same idea as Floyd-Steinberg error diffusion but in
+time instead of space), and the brightness mapping is gamma-corrected (2.2) so equal raw-level
+steps read as equal perceived-brightness steps instead of mostly-invisible ones near the top of
+the range. See [`docs/mqtt-bridge.md#why-its-dithered-and-gamma-corrected`](docs/mqtt-bridge.md#why-its-dithered-and-gamma-corrected).
+
 ## 0.4.0-alpha -- local, smooth transitions
 
 Commands may now carry an optional `"transition"` field (seconds), the same convention Home

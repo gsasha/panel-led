@@ -33,9 +33,20 @@ public class MqttBridgeService extends Service {
     private static final String TAG = "MqttBridge";
     private static final String CHANNEL_ID = "panelled_bridge";
 
-    /** Floor on how often a fade re-evaluates and re-applies the hardware level, regardless of
-     * how many levels it has to cross -- see docs/mqtt-bridge.md#transitions for why. */
-    private static final long MIN_FADE_TICK_MS = 20;
+    /** Temporal-dither sample rate for a fade's hardware output -- see {@link #fade} and
+     * docs/mqtt-bridge.md#transitions. Sasha's own call, raised from 100 Hz (too coarse) to 400 Hz
+     * to 1000 Hz (each step his, after watching the previous one); not independently verified
+     * against this vendor ioctl driver's own tolerance for a sustained high call rate beyond the
+     * live testing this app has had, so watch for stability issues under long-running use. */
+    private static final int DITHER_HZ = 1000;
+
+    /** Gamma for mapping a linear 0..1 brightness fraction onto the hardware's 0..15 raw level --
+     * see {@link #gammaToLevel} and docs/mqtt-bridge.md#transitions. 2.2 is the commonly-cited value for
+     * this exact correction (equal *raw* steps are not equal *perceived* steps -- human brightness
+     * perception is closer to a power law than linear with physical output), not something
+     * measured against this specific panel's diffuser/LEDs; worth re-tuning by eye if it's still
+     * off in either direction. */
+    private static final double GAMMA = 2.2;
 
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final ExecutorService animator = Executors.newSingleThreadExecutor();
@@ -212,41 +223,82 @@ public class MqttBridgeService extends Service {
      * Fades the hardware from (fromOn, fromColor, fromBrightness) to (toOn, toColor,
      * toBrightness) over {@code seconds}, running on {@link #animator} so it never blocks Paho's
      * callback thread (a multi-second block there would delay the very next command -- e.g. an
-     * OFF arriving mid-fade -- from being handled promptly). One step per hardware level crossed
-     * (see docs/mqtt-bridge.md#transitions for why finer-grained steps would be wasted syscalls),
-     * eased with the same quintic smoothstep ESPHome's light_transformer.h uses, not a straight
-     * linear ramp. Bails out as soon as a newer command supersedes {@code myGen} -- that command's
-     * own path has already published and is already applying its own target.
+     * OFF arriving mid-fade -- from being handled promptly).
+     *
+     * There are only 16 hardware levels per channel ({@link LedDevice#MAX_LEVEL}), so sampling the
+     * eased curve once per level crossed (the first cut of this feature) looked wrong: the same
+     * ease-in/ease-out curve that looks smooth for a screen animation is nearly flat right where
+     * it starts and ends, and quantizing that flat region to the nearest of only 16 integers
+     * rounds to the *same* level for many consecutive samples -- so the light visibly sat at each
+     * end and did almost all its visible motion in one short burst through the middle, not what
+     * anyone would call a fade. Sampling at a fixed {@link #DITHER_HZ} and dithering between the
+     * two hardware levels bracketing the true continuous target (an accumulator-based temporal
+     * dither, the same idea as Floyd-Steinberg error diffusion but in time instead of space, not
+     * randomized) fixes this: even while the eased curve is nearly flat, the *duty cycle* between
+     * the two neighboring levels keeps shifting, so the time-averaged brightness a person actually
+     * sees keeps changing smoothly instead of freezing on one quantized level.
+     *
+     * The interpolation itself happens in linear *perceptual* space (each channel's 0..1
+     * brightness fraction, before gamma), not in raw hardware-level space -- gamma is applied
+     * once, per sample, only when converting that instant's perceptual value to the continuous
+     * level {@link #ditheredLevel} then dithers. Interpolating the already gamma-mapped endpoints
+     * instead would retrace a different, wrong curve in between them.
+     *
+     * Both endpoints are the exact native 0-15 level (what {@link #applyImmediate} would also land
+     * on for the same color/brightness) -- dithering only ever represents a value *between* two
+     * native levels, while the fade is actually moving. At rest -- before the first sample and
+     * after the last -- the hardware always sits at an exact native level, never a fractional one
+     * held open by a stalled accumulator.
+     *
+     * Bails out as soon as a newer command supersedes {@code myGen} -- that command's own path has
+     * already published and is already applying its own target.
      */
     private void fade(long myGen, boolean fromOn, int fromColor, int fromBrightness,
                        boolean toOn, int toColor, int toBrightness, double seconds) {
-        int[] start = fromOn ? levelsOf(fromColor, fromBrightness) : new int[] {0, 0, 0};
-        int[] target = toOn ? levelsOf(toColor, toBrightness) : new int[] {0, 0, 0};
-        int steps = Math.max(1, maxDelta(start, target));
-        long totalMs = Math.round(seconds * 1000);
-        long tickMs = Math.max(MIN_FADE_TICK_MS, totalMs / steps);
+        double[] start = fromOn ? perceptualOf(fromColor, fromBrightness) : new double[] {0, 0, 0};
+        double[] target = toOn ? perceptualOf(toColor, toBrightness) : new double[] {0, 0, 0};
+        long tickNanos = 1_000_000_000L / DITHER_HZ;
+        long startNanos = System.nanoTime();
+        double[] acc = {0, 0, 0}; // per-channel dither error accumulators
+        int[] last = {-1, -1, -1}; // guaranteed mismatch so the first sample is always applied
 
-        int[] last = start;
-        for (int i = 1; i <= steps; i++) {
-            try {
-                Thread.sleep(tickMs);
-            } catch (InterruptedException e) {
-                return; // service stopping
-            }
+        while (true) {
+            double t = Math.min(1.0, (System.nanoTime() - startNanos) / (seconds * 1_000_000_000L));
             if (generation.get() != myGen) return; // superseded by a newer command
-            int[] cur = lerp(start, target, smoothstep((double) i / steps));
+            double eased = smoothstep(t);
+            int[] cur = new int[3];
+            for (int i = 0; i < 3; i++) {
+                double p = start[i] + (target[i] - start[i]) * eased; // linear in perceptual space
+                cur[i] = ditheredLevel(gammaToLevel(p), i, acc);
+            }
             if (!Arrays.equals(cur, last)) {
                 LedDevice.setRgb(cur[0], cur[1], cur[2]);
                 last = cur;
-                Log.d(TAG, "fade step " + i + "/" + steps + " -> " + Arrays.toString(cur));
+            }
+            if (t >= 1.0) break;
+            try {
+                Thread.sleep(tickNanos / 1_000_000, (int) (tickNanos % 1_000_000));
+            } catch (InterruptedException e) {
+                return; // service stopping
             }
         }
         if (generation.get() != myGen) return;
-        if (!toOn) {
-            LedDevice.off();
-        } else if (!Arrays.equals(last, target)) {
-            LedDevice.setRgb(target[0], target[1], target[2]);
+        if (!toOn) LedDevice.off(); // canonical off, not setRgb(0,0,0) -- matches applyImmediate
+    }
+
+    /** One channel's dithered sample: {@code v} is split into its integer floor and a fractional
+     * remainder; the remainder accumulates across calls (into {@code acc[channel]}) and, once it
+     * reaches 1, emits the next level up and carries the overflow back -- so over many samples the
+     * fraction of time spent on the upper of the two levels equals the true fractional value, same
+     * as 1D Floyd-Steinberg dithering. */
+    private static int ditheredLevel(double v, int channel, double[] acc) {
+        double base = Math.floor(v);
+        acc[channel] += v - base;
+        if (acc[channel] >= 1.0) {
+            acc[channel] -= 1.0;
+            base += 1;
         }
+        return (int) Math.max(0, Math.min(LedDevice.MAX_LEVEL, base));
     }
 
     /** 0..255 channel, 0..255 brightness -> 0..15 hardware level, one per r/g/b channel. */
@@ -260,19 +312,29 @@ public class MqttBridgeService extends Service {
 
     /** 0..255 channel, 0..255 brightness -> 0..15 hardware level. */
     private static int scale(int channel255, int brightness255) {
-        return Math.round(channel255 / 255f * brightness255 / 255f * LedDevice.MAX_LEVEL);
+        return (int) Math.round(gammaToLevel(perceptual(channel255, brightness255)));
     }
 
-    private static int maxDelta(int[] a, int[] b) {
-        int d = 0;
-        for (int i = 0; i < 3; i++) d = Math.max(d, Math.abs(a[i] - b[i]));
-        return d;
+    /** channel and brightness, each 0..255, combined into one linear 0..1 brightness fraction --
+     * *before* gamma. This is the space fades interpolate in; {@link #gammaToLevel} converts a
+     * point in it to the hardware's non-linear 0..15 scale only at the point of use. */
+    private static double perceptual(int channel255, int brightness255) {
+        return channel255 / 255.0 * brightness255 / 255.0;
     }
 
-    private static int[] lerp(int[] start, int[] target, double t) {
-        int[] out = new int[3];
-        for (int i = 0; i < 3; i++) out[i] = Math.round((float) (start[i] + (target[i] - start[i]) * t));
-        return out;
+    private static double[] perceptualOf(int color, int brightness) {
+        return new double[] {
+                perceptual((color >> 16) & 0xFF, brightness),
+                perceptual((color >> 8) & 0xFF, brightness),
+                perceptual(color & 0xFF, brightness),
+        };
+    }
+
+    /** Linear 0..1 brightness fraction -> continuous 0..15 hardware level, gamma-corrected (see
+     * {@link #GAMMA}) so equal steps of {@code p} read as equal steps of perceived brightness,
+     * not equal steps of raw physical output. */
+    private static double gammaToLevel(double p) {
+        return Math.pow(Math.max(0, Math.min(1, p)), GAMMA) * LedDevice.MAX_LEVEL;
     }
 
     /** Same quintic smoothstep as ESPHome's LightTransformer::smoothed_progress() -- an

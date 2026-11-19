@@ -90,17 +90,55 @@ its default, but it's declared explicitly here rather than relied on silently).
 The app fades from whatever it is currently showing to the target over that many seconds, running
 on its own background thread so a multi-second fade never blocks the next incoming MQTT command
 (an `OFF` arriving mid-fade cancels it and takes over immediately, rather than queuing behind it).
-It steps once per **hardware** level crossed on whichever RGB channel changes the most (there are
-only 16 levels per channel -- `LedDevice.MAX_LEVEL`), not on a fixed small interval: stepping any
-finer would just repeat the same `ioctl` call with no visible difference, for no reason. Each step
-is eased through the same quintic smoothstep
+Progress through the fade's duration is eased through the same quintic smoothstep
 ([`LightTransformer::smoothed_progress()`](https://github.com/esphome/esphome/blob/dev/esphome/components/light/light_transformer.h),
-`6x⁵ - 15x⁴ + 10x³`) that ESPHome's own MQTT JSON-schema light implementation uses for
-exactly this field, rather than a straight linear ramp -- picked for parity with how every other
+`6x⁵ - 15x⁴ + 10x³`) that ESPHome's own MQTT JSON-schema light implementation uses for exactly
+this field, rather than a straight linear ramp -- picked for parity with how every other
 transition-capable light in the house actually feels, not reinvented from scratch. Only the final
 target state is published to the state topic, once, immediately; there is no stream of
 intermediate state messages over MQTT in either direction, which was the point of doing this
 app-side at all.
+
+### Why it's dithered, and gamma-corrected
+
+There are only **16 hardware levels per channel** (`LedDevice.MAX_LEVEL`). The first cut of this
+feature sampled the eased curve once per level crossed and just set that level -- which looked
+wrong: a smoothstep curve is nearly flat right where it starts and ends, and quantizing that flat
+region to the nearest of only 16 integers rounds to the *same* level for many consecutive samples.
+The light visibly sat at each end and did almost all its visible motion in one short burst through
+the middle.
+
+The fix is temporal dithering, sampled at a fixed, fast rate: at each tick, the true continuous
+target (not yet rounded to a hardware level) is split into its integer floor and a fractional
+remainder; the remainder accumulates across ticks and, once it reaches 1, the next level up is
+emitted and the overflow carried back. Over many samples the fraction of time spent on the upper
+of the two levels equals the true fractional value -- the same idea as 1D Floyd-Steinberg error
+diffusion, just in time instead of space. Even while the eased curve is nearly flat, the resulting
+duty cycle between the two neighboring levels keeps shifting, so the time-averaged brightness a
+person actually sees keeps changing smoothly instead of freezing on one quantized level. Both
+fade endpoints are still exact native levels -- dithering only ever represents a value *between*
+two of them while the fade is moving; at rest the hardware always sits at an exact level, never a
+fractional one held open by a stalled accumulator.
+
+The dither rate is 1000 Hz, raised from an initial 100 Hz (too coarse) to 400 Hz to 1000 Hz after
+watching it on a real panel each time. **This has not been independently verified against this
+vendor's ioctl driver's own tolerance for a sustained high call rate** -- `LedDevice`'s one open
++ 3 ioctls + close sequence runs on every single sample, so a multi-second fade means thousands of
+these per second, continuously, for as long as the light is transitioning. It held up fine across
+repeated test fades and breathing-effect runs, but a long unattended soak test hasn't been done;
+watch for stability issues under sustained real-world use, and dial `DITHER_HZ` back down if so.
+
+Separately, the mapping from a linear 0..1 brightness fraction to the 0..15 hardware level is
+**gamma-corrected** (power of 2.2, the commonly-cited value for this exact problem): equal steps
+of raw hardware level are not equal steps of *perceived* brightness -- human brightness perception
+is closer to a power law than linear with physical output, so several levels near the top of the
+range all look close to "fully on" to the eye, and a linear fade visibly spends most of its time
+looking stuck at both ends. Fades interpolate in the pre-gamma, linear-perceptual space and apply
+gamma only once per sample, at the point of converting to a hardware level for dithering -- not by
+gamma-mapping the two endpoints and then interpolating between *those*, which would retrace a
+different, wrong curve in between them. The exact value (2.2) is the standard starting point for
+this class of correction, not something measured against this panel's specific diffuser and LEDs;
+it's worth re-tuning by eye if it still looks off in either direction.
 
 ## Two known limitations
 
