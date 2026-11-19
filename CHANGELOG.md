@@ -3,6 +3,14 @@
 This project is pre-1.0; versions below `1.0.0` carry no binary-compatibility promise for the
 inter-app API (see [`docs/api.md`](docs/api.md#versioning)) and no stability promise in general.
 
+## 0.3.1-alpha -- restart the bridge after an app update, not only a reboot
+
+The bridge's service gets killed by an app update like any other process, and until now only a
+device reboot restarted it afterward (`BootReceiver`'s `BOOT_COMPLETED` handler). These panels are
+rarely rebooted, so an update could leave the bridge down indefinitely with no visible error on
+the panel itself -- only a MQTT-unavailable light in Home Assistant. `BootReceiver` now also
+handles `MY_PACKAGE_REPLACED`.
+
 ## 0.3.0-alpha -- MQTT / Home Assistant bridge
 
 Publishes the light to Home Assistant over MQTT with discovery (`MqttBridgeService`). Adds a
