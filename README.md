@@ -11,7 +11,10 @@ device interface:
   requests, brightness 0..15 per channel).
 - `app/`: an Android app. `LedDevice` is the whole driver; `ledshim.c` is a 3-call native shim
   (`open`, `ioctl`, `close`) written from that description. No vendor binary is included.
-- Planned: publish the bars to Home Assistant as an MQTT-discovery `light` (RGB + brightness).
+- [`docs/api.md`](docs/api.md): this app's whole external surface -- a Binder/AIDL service
+  (`PanelControlService` / `IPanelControl`), nothing else. `panel-led` itself runs no network server
+  of any kind (no MQTT, no HTTP); an external app that wants to publish the light to MQTT or Home
+  Assistant calls in through this API and does the networking on its own side.
 
 > **Unofficial.** Not affiliated with or endorsed by any panel vendor. Provided as is, without warranty
 > (see [LICENSE](LICENSE)). It talks to a hardware device node on your own device; use it at your own
@@ -20,6 +23,10 @@ device interface:
 
 ## Versions
 
+- **0.2.0-alpha, control API.** Adds `PanelControlService` (`IPanelControl` over AIDL, see
+  [`docs/api.md`](docs/api.md)) -- another app on the device can bind to it and set the LED color or
+  turn it off, without this app running any network code. Still exports a read-only relay/IO check
+  (`GpioDevice`, GET only) for diagnosis, not in the control API; see `docs/protocol.md`.
 - **0.1.0-alpha, hardware probe.** Shows what the device exposes for the light (device nodes, sysfs,
   properties) and has buttons that fire the decoded ioctl sequence, with the result code of every call
   on screen. It writes nothing except those ioctls. Not a final app.

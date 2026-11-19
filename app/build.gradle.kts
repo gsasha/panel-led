@@ -1,6 +1,6 @@
 // versionName is the only input; versionCode is derived (same scheme as portico-app):
 // MAJOR*1_000_000 + MINOR*10_000 + PATCH*100 + stage rank (alpha 10, beta 30, rc 50, final 90).
-val panelLedVersionName = "0.1.0-alpha"
+val panelLedVersionName = "0.2.0-alpha"
 
 fun versionCodeOf(name: String): Int {
     val m = Regex("""(\d+)\.(\d{1,2})\.(\d{1,2})(?:-(alpha|beta|rc)(?:\.(\d))?)?""").matchEntire(name)
@@ -31,6 +31,13 @@ android {
 
     externalNativeBuild {
         ndkBuild { path = file("src/main/jni/Android.mk") }
+    }
+
+    // Explicit rather than relying on AGP's default: the AIDL interface (IPanelControl, under
+    // src/main/aidl) is this app's whole external API, so its build feature must not silently
+    // turn off if a future AGP version changes its default.
+    buildFeatures {
+        aidl = true
     }
 
     compileOptions {

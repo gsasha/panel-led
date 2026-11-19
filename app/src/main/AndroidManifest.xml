@@ -1,5 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Held by a caller app that wants to control the side LED via PanelControlService. Normal
+         protection: declaring it in the caller's manifest is enough, no runtime prompt. Deliberately
+         narrow: it names exactly one capability (the light), not "control this panel" in general,
+         so a future relay/IO capability gets its own permission rather than widening this one. -->
+    <permission
+        android:name="app.panelled.permission.CONTROL_LIGHT"
+        android:protectionLevel="normal"
+        android:label="Control the panel's side light" />
+
     <application
         android:label="Panel LED"
         android:allowBackup="false"
@@ -13,5 +22,16 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- The IPanelControl API (docs/api.md). A caller binds with an explicit Intent naming this
+             package, never an implicit one, so the action below is never matched by accident. -->
+        <service
+            android:name=".PanelControlService"
+            android:exported="true"
+            android:permission="app.panelled.permission.CONTROL_LIGHT">
+            <intent-filter>
+                <action android:name="app.panelled.action.BIND_CONTROL" />
+            </intent-filter>
+        </service>
     </application>
 </manifest>

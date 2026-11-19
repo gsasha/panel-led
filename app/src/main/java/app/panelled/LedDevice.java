@@ -41,6 +41,14 @@ public final class LedDevice {
             return true;
         }
 
+        /** A single status for a caller that just wants a return code, e.g. {@link PanelControlService}:
+         * the first negative value among open/ioctls/close, or 0 if every call succeeded. */
+        public int code() {
+            if (open < 0) return open;
+            for (int r : ioctls) if (r < 0) return r;
+            return close < 0 ? close : 0;
+        }
+
         @Override
         public String toString() {
             StringBuilder sb = new StringBuilder("open=").append(open < 0 ? "-" + errno(-open) : "fd");
