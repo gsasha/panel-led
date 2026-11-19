@@ -29,3 +29,18 @@ JNIEXPORT jint JNICALL
 Java_app_panelled_LedDevice_nativeClose(JNIEnv *env, jclass cls, jint fd) {
     return close(fd) < 0 ? -errno : 0;
 }
+
+// Read-only relay/IO probe (GpioDevice). The vendor's ioctl_gpio(gpio, cmd, value) takes a POINTER to
+// the gpio number, not a plain int (decoded from libgpio_control.so). This is the GET call only
+// (request 0x80000000); it deliberately does not implement SET (0x40000000 | value), which could flip
+// a relay wired to something unknown -- see docs/protocol.md.
+JNIEXPORT jint JNICALL
+Java_app_panelled_GpioDevice_nativeGet(JNIEnv *env, jclass cls, jint gpioNum) {
+    int fd = open("/dev/gpio_control", O_RDWR);
+    if (fd < 0) return -errno;
+    int arg = gpioNum;
+    int rc = ioctl(fd, 0x80000000, &arg);
+    int err = errno;
+    close(fd);
+    return rc < 0 ? -err : rc;
+}

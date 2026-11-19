@@ -39,6 +39,7 @@ public class MainActivity extends Activity {
         row.addView(btn("Off", () -> log("off      " + LedDevice.off())));
         row.addView(btn("Cycle", this::cycle));
         row.addView(btn("Re-probe", () -> { log.setText(""); log(Probe.report()); }));
+        row.addView(btn("GPIO read", this::gpioRead));
         root.addView(row);
 
         final TextView lvl = new TextView(this);
@@ -75,6 +76,16 @@ public class MainActivity extends Activity {
         x.setAllCaps(false);
         x.setOnClickListener((View v) -> r.run());
         return x;
+    }
+
+    /** Read-only: pins 0..3, one ioctl each, no SET. */
+    private void gpioRead() {
+        StringBuilder sb = new StringBuilder("gpio-get ");
+        for (int g = 0; g < 4; g++) {
+            int rc = GpioDevice.get(g);
+            sb.append(g).append('=').append(rc < 0 ? "-" + LedDevice.errno(-rc) : String.valueOf(rc)).append(' ');
+        }
+        log(sb.toString());
     }
 
     private void color(int r, int g, int bl) {
