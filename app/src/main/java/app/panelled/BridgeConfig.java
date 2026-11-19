@@ -4,9 +4,9 @@ import android.content.Context;
 import android.content.SharedPreferences;
 
 /**
- * The MQTT bridge's settings. No on-screen form exists for these on purpose (Sasha: he does not
- * want to type the broker password on the panel's screen) -- they are set over adb instead, via
- * {@link ConfigReceiver}. See docs/mqtt-bridge.md.
+ * The MQTT bridge's settings. Every field can be set from {@link SettingsActivity}'s on-screen
+ * form, or over adb via {@link ConfigReceiver} -- useful if you'd rather not type the broker
+ * password where it could be seen on the panel's screen. See docs/mqtt-bridge.md.
  */
 final class BridgeConfig {
     private static final String PREFS = "bridge_config";
@@ -28,7 +28,7 @@ final class BridgeConfig {
     int port() { return prefs.getInt(K_PORT, DEFAULT_PORT); }
     String user() { return prefs.getString(K_USER, null); }
     String password() { return prefs.getString(K_PASS, null); }
-    /** The device's MQTT/entity slug, e.g. "domatic_tablet_gf_play" -- matches naming.md. */
+    /** The device's MQTT/entity slug, e.g. "living_room_panel" -- your own name for this panel. */
     String slug() { return prefs.getString(K_SLUG, null); }
     boolean enabled() { return prefs.getBoolean(K_ENABLED, false); }
 

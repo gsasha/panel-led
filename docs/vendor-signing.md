@@ -1,22 +1,26 @@
-# Vendor signing (resolved, 2026-11-19)
+# Vendor signing
 
-The panel vendor (ELC) sent a zip containing their platform signing key (`platform.pk8`, PKCS#8
-DER, unencrypted) and the matching certificate (`platform.x509.pem`), plus their own `signapk.jar`.
-**The certificate's SHA-256 fingerprint (`9ef8ee67...ed2904`) matches the signer of their own
-installed system apps exactly** (checked against `com.elc.smt_test` pulled off the playroom panel)
--- confirmed to be their real platform key, not a mismatched or placeholder one.
+Some panel vendors will, on request, send you their platform signing key (a PKCS#8 private key
+plus an X.509 certificate) so you can sign your own app the same way their system apps are signed.
+If yours does, this is what to do with it.
 
-## What this app now has that it didn't before
+**Verify it's genuinely theirs before using it.** Compare the certificate's SHA-256 fingerprint
+against the signer of one of the vendor's own installed system apps (any `apksigner verify
+--print-certs` on an APK pulled off the device). If they don't match, don't use it -- you'd be
+signing with the wrong key, or a placeholder.
 
-1. `AndroidManifest.xml` declares `android:sharedUserId="android.uid.system"` -- the same thing the
-   vendor's own apps declare. This line is inert on a signature mismatch (install just fails); it
-   only has effect once the APK is actually signed with the matching cert.
-2. The release build is signed with that cert, not a debug key.
+## What a vendor signature actually buys you
 
-Both are required together -- this is the exact combination the vendor's own apps use (confirmed by
-inspecting `com.elc.smt_test`'s manifest earlier in this task), not a guess.
+1. `AndroidManifest.xml` declares `android:sharedUserId="android.uid.system"` -- the same thing a
+   vendor's own system apps typically declare. This line has no effect on its own; it is inert
+   (install refused) unless the APK is signed with a certificate matching the one that already
+   signs whatever already holds that shared UID on the device.
+2. The release build must be signed with the vendor's certificate, not a debug key.
 
-## Build & sign (manual, today -- not yet wired into Gradle)
+Both are needed together. Confirm the exact combination by inspecting one of the vendor's own
+system apps' manifest on a device you control, rather than assuming it.
+
+## Build & sign (manual; not wired into Gradle)
 
 ```
 ./gradlew :app:assembleRelease                       # unsigned release APK
@@ -27,25 +31,26 @@ java -jar $ANDROID_HOME/build-tools/34.0.0/lib/apksigner.jar sign \
     --out signed.apk aligned.apk
 ```
 
-`apksigner` accepts the raw PKCS#8 key + X.509 cert directly (`--key`/`--cert`); no keystore
-conversion needed. The key and certificate are **not in this repo** -- they are the vendor's
-platform signing key, kept outside any git history on the host that has them
-(`~/secrets/panel-led/` on this one). **Never commit them, here or anywhere else.** A future
-release script should read them from an external path the same way `portico-app` does
-(`PORTICO_SIGNING_PROPS`), not bundle them.
+`apksigner` accepts a raw PKCS#8 key and X.509 certificate directly (`--key`/`--cert`); no keystore
+conversion needed.
 
-## Result (2026-11-19, tested on both panels)
+**Never commit the key or certificate to this repo, or to any other git history.** Keep them
+outside any repository (e.g. `~/secrets/panel-led/`, permissions `600`), and point a build or
+release script at that path via an environment variable rather than a path hard-coded into a
+tracked file.
 
-Installed (uninstall first -- the signature changed, so a plain upgrade install is refused) on:
-- The playroom panel (`domatic-tablet-gf-play`, 15.6" `ZX-SMT1569`).
-- The kitchen tablet (`domatic-tablet-gf-kitchen`, 10.1" `ZX-SMT1019`).
+## Result, once correctly signed and installed
 
-On both: the running process shows `scontext=u:r:system_app:s0`, uid `system` (confirmed via
-`ps -AZ`) -- the same domain as the vendor's own apps. **Every LED and relay/IO call that was
-previously denied now succeeds**: `setRgb`/`off` on `/dev/ledjni` and the GET call on
-`/dev/gpio_control` all return `0`, with no `avc: denied` in logcat. This is the first time either
-has worked from this app; `docs/protocol.md`'s SELinux finding and `docs/api.md`'s "expected -13
-until signed" note are both now historical, not current.
+The app's process runs with `scontext=u:r:system_app:s0` (confirm with `ps -AZ` on the device) --
+the same SELinux domain as the vendor's own system apps. Every LED and relay/IO `ioctl` that was
+previously denied for an ordinary app succeeds: `LedDevice`'s calls and the read-only GPIO check
+both return `0`, with no `avc: denied` entries in `logcat`. `docs/protocol.md`'s SELinux finding
+and `docs/api.md`'s `-13` note both describe an **unsigned** build; this is what changes once it's
+signed.
 
-Not tested: the relay/IO **write** call (still deliberately out of scope -- unknown wiring, see
-`docs/protocol.md`).
+Since the signing identity changes, a plain upgrade install over an existing unsigned install is
+refused -- uninstall first (`adb uninstall app.panelled`), then install the signed APK.
+
+The relay/IO **write** call is deliberately untested in this project -- it can flip hardware of
+unknown wiring, so it's left as a documented risk rather than exercised blind; see
+`docs/protocol.md`.

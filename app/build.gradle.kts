@@ -1,4 +1,4 @@
-// versionName is the only input; versionCode is derived (same scheme as portico-app):
+// versionName is the only input; versionCode is derived from it:
 // MAJOR*1_000_000 + MINOR*10_000 + PATCH*100 + stage rank (alpha 10, beta 30, rc 50, final 90).
 val panelLedVersionName = "0.3.0-alpha"
 

@@ -11,12 +11,12 @@ import java.io.FileInputStream;
 import java.nio.charset.StandardCharsets;
 
 /**
- * Sets the bridge's config over adb, for the one field Sasha does not want typed into the UI: the
- * broker password. Every field here can equally be set from {@link SettingsActivity} (same
- * storage, neither path is "the real one"); the receiver exists for the password specifically.
+ * Sets the bridge's config over adb, useful for the broker password specifically if you'd rather
+ * not type it where it could be seen on the panel's screen. Every field here can equally be set
+ * from {@link SettingsActivity} (same storage, neither path is "the real one").
  *
- * KNOWN LIMITATION, tested 2026-11-19: on this Android build, `adb shell am broadcast -n` only
- * reaches a manifest receiver that is exported with no android:permission at all. Both
+ * KNOWN LIMITATION: on the Android builds this was tested against, `adb shell am broadcast -n`
+ * only reaches a manifest receiver that is exported with no android:permission at all --
  * exported="false" and every permission level tried (normal, signature tied to this app's own
  * key) refused shell exactly as they refuse any other app. So this receiver is reachable by any
  * installed app, not only by adb -- see the manifest's comment on it and docs/mqtt-bridge.md.
@@ -39,7 +39,7 @@ public class ConfigReceiver extends BroadcastReceiver {
         // The password never travels as a plain extra (it would sit in the shell's command history
         // and briefly in `ps`). Instead: `adb push` a file somewhere shell can write (e.g.
         // /data/local/tmp/), then point this extra at it; read, store, and try to delete it.
-        // KNOWN LIMITATION, confirmed 2026-11-19: this app's delete attempt below usually FAILS on
+        // KNOWN LIMITATION: this app's delete attempt below usually FAILS on
         // /data/local/tmp -- that directory is sticky-bit protected, and only the file's owner
         // (shell, since `adb push` creates it) or root may unlink a file there, not this app's uid
         // even though it can read the file fine. So the plaintext password is left sitting there

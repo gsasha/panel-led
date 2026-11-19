@@ -1,22 +1,53 @@
 # MQTT / Home Assistant bridge
 
 `panel-led` publishes its own LED to Home Assistant over MQTT, with discovery, and applies
-incoming commands via the same `LedDevice` the probe screen uses. This now lives inside
-`panel-led` itself (not a separate app) -- see `docs/api.md` for why (now that vendor signing is
-in our own hands, there is no longer a reason to keep the privileged part minimal for a vendor
-review).
+incoming commands via the same `LedDevice` the probe screen uses. It runs no other network code.
 
-## Configuring it
+## Before you start: your MQTT broker needs a user for this
+
+This app authenticates to your broker like any other MQTT client. If your broker (e.g. Mosquitto)
+already requires a username and password, create one for this app -- most brokers support a
+password file plus an ACL, so you can scope the credential narrowly:
+
+- **Read/write** on its own topic namespace, `panelled/<slug>/#` (it both subscribes to commands
+  and publishes state/availability/discovery there).
+- **Write** on `homeassistant/light/#` (or wherever your discovery prefix is), for the discovery
+  config.
+
+Consult your broker's own documentation for exactly how to add a user and an ACL rule -- for
+Mosquitto, that's `mosquitto_passwd` and an `acl_file`. If your broker has no authentication set up
+at all, that's a separate decision for you to make; this app works with or without a
+username/password, but an MQTT broker reachable from your network with no authentication is its
+own risk, unrelated to this app.
+
+**Home Assistant's own MQTT integration also needs read/write on `panelled/#`** (to receive state
+and send commands), in addition to whatever access it already has to your discovery prefix. If
+your broker's ACL is scoped per user (recommended), give the user Home Assistant authenticates as
+a grant on `panelled/#` too, or the entity will appear in Home Assistant, created from the
+discovery message, but stay permanently `unavailable` with no error anywhere -- its subscribe to
+the actual state topics will be silently denied. This is the single most common way to get this
+bridge "half working": check it first if an entity shows up but never changes state.
+
+## Configuring the app
 
 Two equivalent ways, same storage (`BridgeConfig`): **on screen** (`MainActivity` -> "Bridge
 settings") for everything except the password, which is deliberately never pre-filled and never
-shown; or **over adb**, all fields, which is the only way to set the password without typing it
-on the panel:
+shown; or **over adb**, for every field, which is the only way to set the password without typing
+it on the panel's screen.
+
+### On screen
+
+Open the app, tap "Bridge settings", fill in the broker host, port, username, password, and a
+slug (your own name for this panel -- anything short and unique, e.g. `living_room_panel`), then
+tap Save.
+
+### Over adb
 
 ```
 # host / port / username / slug / enabled -- any subset, each extra optional
 adb shell am broadcast -n app.panelled/.ConfigReceiver -a app.panelled.action.SET_CONFIG \
-    --es host 10.2.0.7 --ei port 1883 --es user panel_led --es slug domatic_tablet_gf_play --ez enabled true
+    --es host YOUR_BROKER_HOST --ei port 1883 --es user YOUR_MQTT_USERNAME \
+    --es slug living_room_panel --ez enabled true
 
 # the password -- never on a command line (shell history, `ps`): push a file, point at it, then
 # delete the file yourself (see the limitation below, this app cannot reliably do that part)
@@ -26,8 +57,13 @@ adb shell am broadcast -n app.panelled/.ConfigReceiver -a app.panelled.action.SE
 adb shell rm /data/local/tmp/panelled_mqtt_password
 ```
 
-`slug` is the device's name in topics and in Home Assistant's discovery id -- use the estate's
-naming convention (e.g. `domatic_tablet_gf_play`), not a throwaway value.
+`slug` becomes part of every MQTT topic and Home Assistant's discovery id for this panel -- use
+something that uniquely identifies it if you have more than one panel running this app, since two
+panels sharing a slug would collide on the same topics.
+
+Once configured (and the broker reachable), the app connects, publishes discovery, and the light
+entity appears in Home Assistant on its own -- nothing to do on the Home Assistant side beyond
+having its MQTT integration configured and discovery enabled (the default).
 
 ## Topics (Home Assistant MQTT JSON light schema)
 
@@ -36,41 +72,33 @@ naming convention (e.g. `domatic_tablet_gf_play`), not a throwaway value.
 - `panelled/<slug>/led/availability` -- retained, `online`/`offline` (LWT on disconnect)
 - `homeassistant/light/panelled_<slug>/config` -- retained discovery config, published on every connect
 
-RGB + brightness are combined and scaled to the hardware's 0-15 levels per channel
+RGB and brightness are combined and scaled to the hardware's 0-15 levels per channel
 (`channel/255 * brightness/255 * 15`, rounded).
 
-## Two known limitations, tested 2026-11-19, not assumed
+## Two known limitations
 
-1. **The adb-only receiver is reachable by any installed app, not only by adb.** On this Android
-   build, `adb shell am broadcast -n` only reaches a manifest receiver that is exported with no
-   `android:permission` at all -- `exported="false"` refused shell exactly like it refuses every
-   other app, and so did a `protectionLevel="normal"` permission and a `protectionLevel="signature"`
-   one tied to this app's own key (all three tested directly, not inferred). There is no tested
-   configuration that lets adb in while keeping other apps out. Acceptable today (nothing else is
-   installed on these panels besides Fully and this app); a real gap before recommending this
-   setup for anyone whose panel runs other apps.
-2. **The password file usually cannot be deleted by this app.** `/data/local/tmp` (the natural
-   `adb push` target) is sticky-bit protected: only the file's owner (`shell`, since `adb push`
-   creates it) or root may unlink it there, not this app's uid even though it can read the file
-   fine. The password is read and stored correctly; the file is not reliably removed afterward.
-   **Always run `adb shell rm <file>` yourself right after the broadcast** -- it is a required
-   step, not a cleanup nicety, and the app logs a warning (`ConfigReceiver`, logcat) when its own
-   delete attempt fails so this is visible rather than silent.
+1. **The adb-only receiver is reachable by any installed app, not only by adb.** On the Android
+   builds this was tested against, `adb shell am broadcast -n` only reaches a manifest receiver
+   that is exported with no `android:permission` at all -- `exported="false"` refused shell
+   exactly like it refuses every other app, and so did a `protectionLevel="normal"` permission and
+   a `protectionLevel="signature"` one tied to this app's own key (all three tested directly, not
+   inferred). There is no tested configuration that lets adb in while keeping other apps out. This
+   is fine on a dedicated kiosk panel that runs nothing else; a real gap if the device runs other
+   apps too, since any of them could send this broadcast.
+2. **The pushed password file usually cannot be deleted by this app.** `/data/local/tmp` (the
+   natural `adb push` target) is sticky-bit protected: only the file's owner (`shell`, since
+   `adb push` creates it) or root may unlink it there, not this app's uid, even though it can read
+   the file fine. The password is read and stored correctly; the file is not reliably removed
+   afterward. **Always run `adb shell rm <file>` yourself right after the broadcast** -- it's a
+   required step, not a cleanup nicety, and the app logs a warning in `logcat` (tag
+   `ConfigReceiver`) when its own delete attempt fails, so this is visible rather than silent.
 
-## Production broker credential -- not done yet
+## What "verified end to end" means here
 
-The estate's mosquitto broker (`10.2.0.7:1883`) needs its own narrow user/ACL for this bridge
-(matching the house convention of one credential per consumer, e.g. the Nuki lock's publish-only
-user) -- a PR to `upravdom-docker`, Sasha merges. Until that exists, point the bridge at a test
-broker to verify it, as this build was (a throwaway local container, torn down after).
-
-## Verified end to end (2026-11-19, playroom panel)
-
-A throwaway local mosquitto container (anonymous, not the estate's broker): connected, discovery
-config published and valid, a `{"state":"ON","color":{"r":255,"g":0,"b":0}}` command actually
-turned the physical LED red (confirmed via the return code the probe screen already proved means
-success -- see `docs/vendor-signing.md`), the retained state topic reflected it, and `"state":"OFF"`
-turned it back off. Found and fixed one real bug along the way: Paho's `automaticReconnect`
-re-establishes the connection by itself but does not resubscribe or republish discovery -- that
-has to happen in `MqttCallbackExtended.connectComplete()`, not just once after the initial
-`connect()`, or every reconnect silently loses the subscription.
+This was tested against a real broker and a real device: connect, discovery publish, a color
+command that actually turned the physical LED red, the retained state topic reflecting it, and an
+off command turning it back off. One real bug was found and fixed along the way: Paho's
+`automaticReconnect` re-establishes the connection by itself but does **not** resubscribe or
+republish discovery -- that has to happen in `MqttCallbackExtended.connectComplete()`, called on
+every successful connect including automatic reconnects, not just once after the initial
+`connect()`. Without that fix, the app silently loses its subscription on the first reconnect.

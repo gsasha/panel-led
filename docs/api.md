@@ -42,8 +42,8 @@ interface IPanelControl {
   so a caller never has to guess by catching a failure; a future version that lost LED support for
   some reason (it won't, but the point of checking is that a caller doesn't have to assume) would
   simply not set that bit.
-- `setLedColor`/`setLedOff` return `0` on success or a negative `errno` (`-13` is `EACCES`). **As of
-  2026-11-19 this returns `0`** on a release build signed with the vendor's platform key plus
+- `setLedColor`/`setLedOff` return `0` on success or a negative `errno` (`-13` is `EACCES`). This
+  returns `0` on a release build signed with the vendor's platform key plus
   `android:sharedUserId="android.uid.system"` -- see `docs/vendor-signing.md`. A debug build still
   returns `-13`: the AIDL contract is unchanged either way, only the signature decides which answer
   a given build gets.
@@ -51,10 +51,10 @@ interface IPanelControl {
 ## What is deliberately not here
 
 Relay and digital-IO control (`/dev/gpio_control`, documented in `docs/protocol.md`) are not in this
-interface. They were investigated -- same SELinux wall as the LED -- but Sasha did not ask for them to
-be built, only to check the permission question, so adding `CAP_RELAY`/`CAP_IO` now would be
-speculative surface with its own failure modes (in particular, the relay/IO *write* call was never
-even tested on real hardware, because it can flip something of unknown wiring). If that's wanted
+interface. They were investigated -- same SELinux wall as the LED, same signing fix would unlock
+them -- but aren't built, so adding `CAP_RELAY`/`CAP_IO` now would be speculative surface with its
+own failure modes (in particular, the relay/IO *write* call was never tested on real hardware,
+because it can flip something of unknown wiring). If that's wanted
 later: add `CAP_RELAY = 0x2` and new methods **appended** to the interface (never inserted before
 `setLedOff`, never renumbering `CAP_LED`), and give it its own permission
 (`app.panelled.permission.CONTROL_RELAY`) rather than folding it into `CONTROL_LIGHT` -- a caller

@@ -14,16 +14,15 @@
         android:protectionLevel="normal"
         android:label="Control the panel's side light" />
 
-    <!-- KNOWN LIMITATION, tested 2026-11-19, not a gap left by oversight: on this Android build,
-         `adb shell am broadcast -n` can reach ConfigReceiver ONLY if it is exported with NO
-         android:permission at all; exported="false" refused shell exactly like it refuses other
-         apps, and BOTH a protectionLevel="normal" and a protectionLevel="signature" permission
-         (tied to this app's own key) also refused shell, same as any other app would be refused.
-         There is no tested configuration that lets adb in while keeping every other installed app
-         out. So today, on a device with other apps installed, any of them could send this
-         broadcast too; acceptable on these panels (nothing else is installed besides Fully and
-         this app), a real gap for anyone else's device. docs/mqtt-bridge.md has the detail; fix it
-         properly before recommending this to someone whose panel runs other apps. -->
+    <!-- KNOWN LIMITATION, not a gap left by oversight: on the Android builds this was tested
+         against, `adb shell am broadcast -n` can reach ConfigReceiver ONLY if it is exported with
+         NO android:permission at all; exported="false" refused shell exactly like it refuses
+         other apps, and BOTH a protectionLevel="normal" and a protectionLevel="signature"
+         permission (tied to this app's own key) also refused shell, same as any other app would
+         be refused. There is no tested configuration that lets adb in while keeping every other
+         installed app out. So on a device with other apps installed, any of them could send this
+         broadcast too; fine on a dedicated kiosk panel that runs nothing else, a real gap
+         otherwise. docs/mqtt-bridge.md has the detail. -->
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />

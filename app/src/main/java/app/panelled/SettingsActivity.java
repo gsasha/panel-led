@@ -44,7 +44,7 @@ public class SettingsActivity extends Activity {
         user = field(root, "Username (optional)", cfg.user(), InputType.TYPE_CLASS_TEXT);
         password = field(root, cfg.password() == null ? "Password (none set)" : "Password (set -- leave blank to keep it)",
                 null, InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        slug = field(root, "Device slug (e.g. domatic_tablet_gf_play)", cfg.slug(), InputType.TYPE_CLASS_TEXT);
+        slug = field(root, "Device slug (e.g. living_room_panel)", cfg.slug(), InputType.TYPE_CLASS_TEXT);
 
         LinearLayout enabledRow = new LinearLayout(this);
         enabledRow.setGravity(Gravity.CENTER_VERTICAL);
