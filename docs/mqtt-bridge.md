@@ -67,13 +67,40 @@ having its MQTT integration configured and discovery enabled (the default).
 
 ## Topics (Home Assistant MQTT JSON light schema)
 
-- `panelled/<slug>/led/set` -- command, JSON `{"state":"ON"|"OFF","color":{"r":,"g":,"b":},"brightness":0-255}`
+- `panelled/<slug>/led/set` -- command, JSON `{"state":"ON"|"OFF","color":{"r":,"g":,"b":},"brightness":0-255,"transition":seconds}` (`transition` optional, see below)
 - `panelled/<slug>/led/state` -- retained, same shape, reflects what was actually applied
 - `panelled/<slug>/led/availability` -- retained, `online`/`offline` (LWT on disconnect)
 - `homeassistant/light/panelled_<slug>/config` -- retained discovery config, published on every connect
 
 RGB and brightness are combined and scaled to the hardware's 0-15 levels per channel
 (`channel/255 * brightness/255 * 15`, rounded).
+
+## Transitions
+
+A command may carry an optional `"transition": <seconds>` field: `{"state":"ON","color":{...},
+"brightness":...,"transition":2}`. This is the [Home Assistant MQTT Light `json`
+schema](https://www.home-assistant.io/integrations/light.mqtt/)'s own convention for
+`light.turn_on(transition=...)` -- Home Assistant does not fade anything itself over the network;
+it sends this one payload with the target state and the requested duration, and the device is
+expected to animate locally. The `default` MQTT light schema has no concept of transitions at all;
+only `json` and `template` do (confirmed from that page's schema-comparison table). The discovery
+config declares `"transition": true` so Home Assistant knows to include the field (that is also
+its default, but it's declared explicitly here rather than relied on silently).
+
+The app fades from whatever it is currently showing to the target over that many seconds, running
+on its own background thread so a multi-second fade never blocks the next incoming MQTT command
+(an `OFF` arriving mid-fade cancels it and takes over immediately, rather than queuing behind it).
+It steps once per **hardware** level crossed on whichever RGB channel changes the most (there are
+only 16 levels per channel -- `LedDevice.MAX_LEVEL`), not on a fixed small interval: stepping any
+finer would just repeat the same `ioctl` call with no visible difference, for no reason. Each step
+is eased through the same quintic smoothstep
+([`LightTransformer::smoothed_progress()`](https://github.com/esphome/esphome/blob/dev/esphome/components/light/light_transformer.h),
+`6x⁵ - 15x⁴ + 10x³`) that ESPHome's own MQTT JSON-schema light implementation uses for
+exactly this field, rather than a straight linear ramp -- picked for parity with how every other
+transition-capable light in the house actually feels, not reinvented from scratch. Only the final
+target state is published to the state topic, once, immediately; there is no stream of
+intermediate state messages over MQTT in either direction, which was the point of doing this
+app-side at all.
 
 ## Two known limitations
 

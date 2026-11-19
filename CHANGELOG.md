@@ -3,6 +3,14 @@
 This project is pre-1.0; versions below `1.0.0` carry no binary-compatibility promise for the
 inter-app API (see [`docs/api.md`](docs/api.md#versioning)) and no stability promise in general.
 
+## 0.4.0-alpha -- local, smooth transitions
+
+Commands may now carry an optional `"transition"` field (seconds), the same convention Home
+Assistant's MQTT JSON light schema uses for `light.turn_on(transition=...)`. The app fades from
+its current state to the target locally -- eased with the same quintic smoothstep curve ESPHome
+uses for this field -- instead of snapping instantly or requiring a stream of updates over MQTT.
+See [`docs/mqtt-bridge.md`](docs/mqtt-bridge.md#transitions).
+
 ## 0.3.1-alpha -- restart the bridge after an app update, not only a reboot
 
 The bridge's service gets killed by an app update like any other process, and until now only a

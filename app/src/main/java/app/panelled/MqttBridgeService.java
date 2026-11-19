@@ -18,8 +18,10 @@ import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.util.Arrays;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Publishes the panel's LED to Home Assistant over MQTT (JSON light schema, with discovery), and
@@ -31,7 +33,13 @@ public class MqttBridgeService extends Service {
     private static final String TAG = "MqttBridge";
     private static final String CHANNEL_ID = "panelled_bridge";
 
+    /** Floor on how often a fade re-evaluates and re-applies the hardware level, regardless of
+     * how many levels it has to cross -- see docs/mqtt-bridge.md#transitions for why. */
+    private static final long MIN_FADE_TICK_MS = 20;
+
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
+    private final ExecutorService animator = Executors.newSingleThreadExecutor();
+    private final AtomicLong generation = new AtomicLong();
     private MqttClient client;
 
     /** Call after any config change (SettingsActivity, ConfigReceiver, boot): starts, restarts or
@@ -157,22 +165,31 @@ public class MqttBridgeService extends Service {
                 JSONObject c = cmd.getJSONObject("color");
                 color = (c.optInt("r", 0) << 16) | (c.optInt("g", 0) << 8) | c.optInt("b", 0);
             }
+            // Home Assistant's MQTT JSON light schema (schema: json) puts the fade duration, in
+            // seconds, in this same payload rather than sending a stream of updates itself -- the
+            // device is expected to animate locally. See docs/mqtt-bridge.md#transitions.
+            double transitionSeconds = cmd.optDouble("transition", 0);
 
-            int rc;
-            if (!on) {
-                rc = LedDevice.off().code();
-            } else {
-                int r = scale((color >> 16) & 0xFF, brightness);
-                int g = scale((color >> 8) & 0xFF, brightness);
-                int b = scale(color & 0xFF, brightness);
-                rc = LedDevice.setRgb(r, g, b).code();
-            }
-            if (rc != 0) Log.w(TAG, "LED command returned " + rc + " (see docs/vendor-signing.md if this is -13)");
+            boolean fromOn = lastKnownOn;
+            int fromColor = lastKnownColor;
+            int fromBrightness = lastKnownBrightness;
+            long myGen = generation.incrementAndGet();
 
             lastKnownOn = on;
             lastKnownColor = color;
             lastKnownBrightness = brightness;
+            // Published once, now, for the target -- not once per fade step. HA's own frontend
+            // already shows a transitioning light at its target immediately, same as any other
+            // transition-capable light; the hardware catches up locally over transitionSeconds.
             publishState(cfg, on, color, brightness);
+
+            if (transitionSeconds > 0 && !Double.isNaN(transitionSeconds)) {
+                final int toColor = color;
+                final int toBrightness = brightness;
+                animator.execute(() -> fade(myGen, fromOn, fromColor, fromBrightness, on, toColor, toBrightness, transitionSeconds));
+            } else {
+                applyImmediate(on, color, brightness);
+            }
         } catch (JSONException e) {
             Log.w(TAG, "bad command payload: " + e);
         } catch (Exception e) {
@@ -180,9 +197,89 @@ public class MqttBridgeService extends Service {
         }
     }
 
+    private void applyImmediate(boolean on, int color, int brightness) {
+        int rc;
+        if (!on) {
+            rc = LedDevice.off().code();
+        } else {
+            int[] lv = levelsOf(color, brightness);
+            rc = LedDevice.setRgb(lv[0], lv[1], lv[2]).code();
+        }
+        if (rc != 0) Log.w(TAG, "LED command returned " + rc + " (see docs/vendor-signing.md if this is -13)");
+    }
+
+    /**
+     * Fades the hardware from (fromOn, fromColor, fromBrightness) to (toOn, toColor,
+     * toBrightness) over {@code seconds}, running on {@link #animator} so it never blocks Paho's
+     * callback thread (a multi-second block there would delay the very next command -- e.g. an
+     * OFF arriving mid-fade -- from being handled promptly). One step per hardware level crossed
+     * (see docs/mqtt-bridge.md#transitions for why finer-grained steps would be wasted syscalls),
+     * eased with the same quintic smoothstep ESPHome's light_transformer.h uses, not a straight
+     * linear ramp. Bails out as soon as a newer command supersedes {@code myGen} -- that command's
+     * own path has already published and is already applying its own target.
+     */
+    private void fade(long myGen, boolean fromOn, int fromColor, int fromBrightness,
+                       boolean toOn, int toColor, int toBrightness, double seconds) {
+        int[] start = fromOn ? levelsOf(fromColor, fromBrightness) : new int[] {0, 0, 0};
+        int[] target = toOn ? levelsOf(toColor, toBrightness) : new int[] {0, 0, 0};
+        int steps = Math.max(1, maxDelta(start, target));
+        long totalMs = Math.round(seconds * 1000);
+        long tickMs = Math.max(MIN_FADE_TICK_MS, totalMs / steps);
+
+        int[] last = start;
+        for (int i = 1; i <= steps; i++) {
+            try {
+                Thread.sleep(tickMs);
+            } catch (InterruptedException e) {
+                return; // service stopping
+            }
+            if (generation.get() != myGen) return; // superseded by a newer command
+            int[] cur = lerp(start, target, smoothstep((double) i / steps));
+            if (!Arrays.equals(cur, last)) {
+                LedDevice.setRgb(cur[0], cur[1], cur[2]);
+                last = cur;
+                Log.d(TAG, "fade step " + i + "/" + steps + " -> " + Arrays.toString(cur));
+            }
+        }
+        if (generation.get() != myGen) return;
+        if (!toOn) {
+            LedDevice.off();
+        } else if (!Arrays.equals(last, target)) {
+            LedDevice.setRgb(target[0], target[1], target[2]);
+        }
+    }
+
+    /** 0..255 channel, 0..255 brightness -> 0..15 hardware level, one per r/g/b channel. */
+    private static int[] levelsOf(int color, int brightness) {
+        return new int[] {
+                scale((color >> 16) & 0xFF, brightness),
+                scale((color >> 8) & 0xFF, brightness),
+                scale(color & 0xFF, brightness),
+        };
+    }
+
     /** 0..255 channel, 0..255 brightness -> 0..15 hardware level. */
     private static int scale(int channel255, int brightness255) {
         return Math.round(channel255 / 255f * brightness255 / 255f * LedDevice.MAX_LEVEL);
+    }
+
+    private static int maxDelta(int[] a, int[] b) {
+        int d = 0;
+        for (int i = 0; i < 3; i++) d = Math.max(d, Math.abs(a[i] - b[i]));
+        return d;
+    }
+
+    private static int[] lerp(int[] start, int[] target, double t) {
+        int[] out = new int[3];
+        for (int i = 0; i < 3; i++) out[i] = Math.round((float) (start[i] + (target[i] - start[i]) * t));
+        return out;
+    }
+
+    /** Same quintic smoothstep as ESPHome's LightTransformer::smoothed_progress() -- an
+     * ease-in/ease-out curve, not a mechanical linear ramp. x is clamped to [0, 1] first. */
+    private static double smoothstep(double x) {
+        x = Math.max(0, Math.min(1, x));
+        return x * x * x * (x * (x * 6 - 15) + 10);
     }
 
     private void publishState(BridgeConfig cfg, boolean on, int color, int brightness) {
@@ -240,6 +337,9 @@ public class MqttBridgeService extends Service {
             // anywhere. "rgb" implies brightness in the current schema; do not add "brightness"
             // alongside it, which HA logs as invalid (two color modes where one is redundant).
             d.put("supported_color_modes", new org.json.JSONArray().put("rgb"));
+            // Explicit even though true is HA's own default for this flag -- see
+            // docs/mqtt-bridge.md#transitions for what it buys us and where the behavior is from.
+            d.put("transition", true);
             JSONObject device = new JSONObject();
             device.put("identifiers", new org.json.JSONArray().put("panelled_" + cfg.slug()));
             device.put("name", cfg.slug());
@@ -266,6 +366,7 @@ public class MqttBridgeService extends Service {
     public void onDestroy() {
         disconnectQuietly();
         worker.shutdownNow();
+        animator.shutdownNow(); // interrupts Thread.sleep() in fade(), which returns at once
         super.onDestroy();
     }
 
