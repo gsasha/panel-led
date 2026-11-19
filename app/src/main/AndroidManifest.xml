@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<!-- sharedUserId + a signature matching the vendor's own platform cert (docs/vendor-signing.md) is
+     the combination their own system apps use to reach /dev/ledjni and /dev/gpio_control; this
+     manifest line only has effect when the APK is actually signed with that cert; a debug build
+     keeps this line but it is inert (the uid-join is refused on a signature mismatch). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    android:sharedUserId="android.uid.system">
     <!-- Held by a caller app that wants to control the side LED via PanelControlService. Normal
          protection: declaring it in the caller's manifest is enough, no runtime prompt. Deliberately
          narrow: it names exactly one capability (the light), not "control this panel" in general,

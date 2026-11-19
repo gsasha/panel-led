@@ -1,6 +1,6 @@
 // versionName is the only input; versionCode is derived (same scheme as portico-app):
 // MAJOR*1_000_000 + MINOR*10_000 + PATCH*100 + stage rank (alpha 10, beta 30, rc 50, final 90).
-val panelLedVersionName = "0.2.0-alpha"
+val panelLedVersionName = "0.2.1-alpha"
 
 fun versionCodeOf(name: String): Int {
     val m = Regex("""(\d+)\.(\d{1,2})\.(\d{1,2})(?:-(alpha|beta|rc)(?:\.(\d))?)?""").matchEntire(name)

@@ -23,6 +23,11 @@ device interface:
 
 ## Versions
 
+- **0.2.1-alpha, vendor-signed.** Signed with a platform key the vendor provided, plus
+  `android:sharedUserId="android.uid.system"` in the manifest -- the exact combination their own
+  apps use. Confirmed working on two panel models: every LED/relay-read call that was previously
+  denied now succeeds. See [`docs/vendor-signing.md`](docs/vendor-signing.md). **The signing key is
+  not in this repo**, and must never be committed here or anywhere else.
 - **0.2.0-alpha, control API.** Adds `PanelControlService` (`IPanelControl` over AIDL, see
   [`docs/api.md`](docs/api.md)) -- another app on the device can bind to it and set the LED color or
   turn it off, without this app running any network code. Still exports a read-only relay/IO check

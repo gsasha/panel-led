@@ -41,11 +41,11 @@ interface IPanelControl {
   so a caller never has to guess by catching a failure; a future version that lost LED support for
   some reason (it won't, but the point of checking is that a caller doesn't have to assume) would
   simply not set that bit.
-- `setLedColor`/`setLedOff` return `0` on success or a negative `errno` (`-13` is `EACCES`, which is
-  what every call returns today -- see `docs/protocol.md`'s SELinux finding. That is the expected,
-  current answer, not a bug in the API; it stops being `-13` once the panel vendor signs this app, or
-  signs a small shim this app's driver code is swapped to call into instead. Either way, the AIDL
-  contract above does not change.)
+- `setLedColor`/`setLedOff` return `0` on success or a negative `errno` (`-13` is `EACCES`). **As of
+  2026-11-19 this returns `0`** on a release build signed with the vendor's platform key plus
+  `android:sharedUserId="android.uid.system"` -- see `docs/vendor-signing.md`. A debug build still
+  returns `-13`: the AIDL contract is unchanged either way, only the signature decides which answer
+  a given build gets.
 
 ## What is deliberately not here
 

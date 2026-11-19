@@ -4,6 +4,9 @@ local.properties
 *.apk
 *.keystore
 *.jks
+*.pk8
+*.p12
 signing.properties
+vendor_sig/
 .idea/
 .cxx/
