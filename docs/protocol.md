@@ -28,3 +28,25 @@ by disassembly (the C source path baked into it is `.../Led_Seven_Memory/demo/ap
 
 Owners of RK3576 / Android 14 units report the vendor app and library work on some and not on others.
 Whether `/dev/ledjni` exists and is openable by an app on *our* unit is what the v0.1 probe answers.
+
+## Relay and digital IO (`/dev/gpio_control`)
+
+The second library, `libgpio_control.so` (`com.sys.gpio.gpioJni`), controls 2 relays and 2 digital IO
+pins through `/dev/gpio_control` (same SELinux label and class as `/dev/ledjni`: `u:object_r:device:s0`,
+`chr_file`). Decoded by disassembly:
+
+```
+ioctl_gpio(gpio_num, cmd, value):
+    fd = open("/dev/gpio_control", O_RDWR)
+    if cmd == 0 (SET): request = 0x40000000 | (value == 1 ? 1 : 0)   # bit0: 1 = high, 0 = low
+    else       (GET): request = 0x80000000                           # value is ignored
+    arg = &gpio_num   # a POINTER, not a plain int -- unlike the LED calls
+    return ioctl(fd, request, arg)   # GET returns the pin level (0/1) directly; SET returns 0/-1
+    close(fd)
+```
+
+**Confirmed denied for an ordinary app, the same way as the LED**: `avc: denied { ioctl }` on
+`/dev/gpio_control` for `untrusted_app`, tested with the GET call only (`request 0x80000000`, gpio 0-3).
+The SET call was not tested on real hardware, deliberately -- it would flip a relay or IO pin whose
+wiring is unknown, which is a real side effect, not a safe read. Given the identical label/class and the
+same blanket denial on GET, SET should be assumed denied too, not verified.
