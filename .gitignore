@@ -6,6 +6,8 @@ local.properties
 *.jks
 *.pk8
 *.p12
+*.p12.password
+*.x509.pem
 signing.properties
 vendor_sig/
 .idea/

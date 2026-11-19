@@ -5,7 +5,7 @@ import android.content.SharedPreferences;
 
 /**
  * The MQTT bridge's settings. Every field can be set from {@link SettingsActivity}'s on-screen
- * form, or over adb via {@link ConfigReceiver} -- useful if you'd rather not type the broker
+ * form, or over adb via {@link ConfigProvider} -- useful if you'd rather not type the broker
  * password where it could be seen on the panel's screen. See docs/mqtt-bridge.md.
  */
 final class BridgeConfig {

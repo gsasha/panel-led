@@ -14,16 +14,6 @@
         android:protectionLevel="normal"
         android:label="Control the panel's side light" />
 
-    <!-- KNOWN LIMITATION, not a gap left by oversight: on the Android builds this was tested
-         against, `adb shell am broadcast -n` can reach ConfigReceiver ONLY if it is exported with
-         NO android:permission at all; exported="false" refused shell exactly like it refuses
-         other apps, and BOTH a protectionLevel="normal" and a protectionLevel="signature"
-         permission (tied to this app's own key) also refused shell, same as any other app would
-         be refused. There is no tested configuration that lets adb in while keeping every other
-         installed app out. So on a device with other apps installed, any of them could send this
-         broadcast too; fine on a dedicated kiosk panel that runs nothing else, a real gap
-         otherwise. docs/mqtt-bridge.md has the detail. -->
-
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -62,18 +52,18 @@
         </service>
 
         <!-- The MQTT bridge (docs/mqtt-bridge.md). Not started by an intent-filter; only
-             applyConfigChange() ever starts it, from SettingsActivity, ConfigReceiver or BootReceiver. -->
+             applyConfigChange() ever starts it, from SettingsActivity, ConfigProvider or BootReceiver. -->
         <service
             android:name=".MqttBridgeService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
-        <!-- Lets the broker password (and, for convenience, anything else this screen also covers)
-             be set without ever typing it on the panel's screen. No android:permission; every one
-             tried refused adb shell too, not just other apps (see the KNOWN LIMITATION comment
-             above). docs/mqtt-bridge.md has the exact commands and that limitation written out. -->
-        <receiver
-            android:name=".ConfigReceiver"
+        <!-- Config over adb (docs/mqtt-bridge.md). Exported with no android:permission, but the
+             code refuses every caller whose uid is not the adb shell or root, so other installed
+             apps cannot use it. -->
+        <provider
+            android:name=".ConfigProvider"
+            android:authorities="${applicationId}.config"
             android:exported="true" />
 
         <receiver

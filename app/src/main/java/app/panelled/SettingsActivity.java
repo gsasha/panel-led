@@ -16,7 +16,7 @@ import android.widget.TextView;
 
 /**
  * The normal, on-screen way to configure the MQTT bridge -- every field here can also be set over
- * adb (ConfigReceiver, see docs/mqtt-bridge.md); this screen and that receiver write the same
+ * adb (ConfigProvider, see docs/mqtt-bridge.md); this screen and that provider write the same
  * storage (BridgeConfig), so either way works and neither is the "real" one. The password field
  * is intentionally never pre-filled with the stored value, even if one is set -- only whether one
  * is set, so a glance at this screen never discloses it.

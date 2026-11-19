@@ -3,6 +3,22 @@
 This project is pre-1.0; versions below `1.0.0` carry no binary-compatibility promise for the
 inter-app API (see [`docs/api.md`](docs/api.md#versioning)) and no stability promise in general.
 
+## 0.6.0-alpha -- adb config is adb-only; Gradle signing
+
+**Breaking: the adb config interface changed.** The `ConfigReceiver` broadcast is gone, replaced by
+a content provider (`content://app.panelled.config`, driven with `adb shell content update /
+write / query`). Two gaps from the old receiver are closed: any installed app could send to it
+(the provider answers only the adb shell or root, checked by caller uid), and the password had to
+be pushed as a file that the app could not delete (it is now streamed over adb's stdin and never
+stored on the device as a file). Verified on a real panel, including that an ordinary app is
+refused. Stored config carries over unchanged. Commands: [`docs/mqtt-bridge.md`](docs/mqtt-bridge.md#over-adb);
+the reasoning: [`docs/mqtt-bridge.md`](docs/mqtt-bridge.md#why-the-adb-config-interface-is-a-content-provider).
+
+**Gradle can sign the release build** when `PANEL_LED_KEYSTORE` and `PANEL_LED_KEYSTORE_PASSWORD`
+are set (with `scripts/make-keystore.sh` to make the keystore from a `platform.pk8` +
+`platform.x509.pem` pair), replacing the manual zipalign + apksigner steps. Without them the
+release is left unsigned as before. See [`docs/vendor-signing.md`](docs/vendor-signing.md).
+
 ## 0.5.0-alpha -- dithered, gamma-corrected transitions
 
 0.4.0's fade sampled once per hardware level crossed (only 16 per channel), which visibly froze

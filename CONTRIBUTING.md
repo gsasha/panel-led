@@ -17,7 +17,7 @@ by itself. Open an issue with:
 
 ## Reporting a bug
 
-Include the exact `adb logcat` lines around the failure (tag `MqttBridge` or `ConfigReceiver` for
+Include the exact `adb logcat` lines around the failure (tag `MqttBridge` or `ConfigProvider` for
 the bridge, or whatever the probe screen printed for the hardware side), and your Android
 version/build.
 

@@ -97,15 +97,15 @@ Install and configure panel-led on the Android panel reachable at adb target <AD
      - broker port: <MQTT_PORT>  (1883 if unset)
      - MQTT username: <MQTT_USERNAME>
      - device slug: <SLUG>  (your own short, unique name for this panel)
-   Push the MQTT password to a file first rather than passing it as a command-line argument
-   (it must not end up in shell history): write it to a local file, `adb -s <ADB_TARGET> push
-   <local_password_file> /data/local/tmp/panelled_mqtt_password`, then broadcast
-   `app.panelled.action.SET_CONFIG` to `app.panelled/.ConfigReceiver` with extras `--es host
-   <MQTT_HOST> --ei port <MQTT_PORT> --es user <MQTT_USERNAME> --es slug <SLUG> --ez enabled true
-   --es load_password_from /data/local/tmp/panelled_mqtt_password`, then delete that file on the
-   device afterward (`adb -s <ADB_TARGET> shell rm /data/local/tmp/panelled_mqtt_password`) --
-   the app usually cannot delete it itself (see docs/mqtt-bridge.md's known limitations), so this
-   cleanup step is required, not optional.
+   Do not pass the MQTT password as a command-line argument (it would land in shell history).
+   First set the password by streaming it from a local file over adb's stdin (nothing is written
+   on the device): `adb -s <ADB_TARGET> shell content write --uri
+   content://app.panelled.config/password < <local_password_file>`. Then set the rest:
+   `adb -s <ADB_TARGET> shell content update --uri content://app.panelled.config/config
+   --bind host:s:<MQTT_HOST> --bind port:i:<MQTT_PORT> --bind user:s:<MQTT_USERNAME>
+   --bind slug:s:<SLUG> --bind enabled:b:true`. You can read the result back (the password is
+   never returned) with `adb -s <ADB_TARGET> shell content query --uri
+   content://app.panelled.config/config`; it should show `password_set=1` and `configured=1`.
 5. Verify: `adb -s <ADB_TARGET> shell logcat -d | grep MqttBridge` should show a line ending
    "connected, subscribed panelled/<SLUG>/led/set". If it instead shows a connect failure, check
    the broker host/port/credential and that the broker is reachable from the panel's network.
@@ -138,7 +138,7 @@ signed release instead.
   `/dev/gpio_control`, the exact `ioctl` calls.
 - [`docs/api.md`](docs/api.md) -- the Binder/AIDL inter-app control surface.
 - [`docs/mqtt-bridge.md`](docs/mqtt-bridge.md) -- the MQTT/Home Assistant integration, its topics,
-  and its two known limitations.
+  and why its adb config interface is a content provider.
 - [`docs/vendor-signing.md`](docs/vendor-signing.md) -- what to do if your panel needs a vendor
   signature to unlock LED/relay access.
 - `app/` -- the Android app. `LedDevice`/`GpioDevice` are the whole hardware driver;
@@ -148,10 +148,10 @@ signed release instead.
 
 ## Known limitations
 
-See [`docs/mqtt-bridge.md`](docs/mqtt-bridge.md#two-known-limitations) for the two gaps that are
-tracked rather than hidden: the adb-config path is reachable by any app installed on the same
-device, not only adb, and the app usually can't clean up the password file it reads during adb
-configuration.
+- The stored MQTT password sits in the app's private preferences, not encrypted: anything with
+  the adb shell or root on the panel can read it. See
+  [`docs/mqtt-bridge.md`](docs/mqtt-bridge.md#why-the-adb-config-interface-is-a-content-provider)
+  for what the adb config interface does and does not defend against.
 
 ## Contributing
 

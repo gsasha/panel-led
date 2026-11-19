@@ -20,24 +20,32 @@ signing with the wrong key, or a placeholder.
 Both are needed together. Confirm the exact combination by inspecting one of the vendor's own
 system apps' manifest on a device you control, rather than assuming it.
 
-## Build & sign (manual; not wired into Gradle)
+## Build & sign
+
+Gradle signs the release build itself when it is given a keystore, and leaves it unsigned
+otherwise (so a build without the vendor key behaves exactly as before). A vendor platform key
+usually comes as a `platform.pk8` + `platform.x509.pem` pair; `scripts/make-keystore.sh` turns
+that into the PKCS12 keystore Gradle wants (once; the password is random, written to a file next
+to it, and never appears on a command line):
 
 ```
-./gradlew :app:assembleRelease                       # unsigned release APK
-$ANDROID_HOME/build-tools/34.0.0/zipalign -v -p 4 \
-    app/build/outputs/apk/release/app-release-unsigned.apk aligned.apk
-java -jar $ANDROID_HOME/build-tools/34.0.0/lib/apksigner.jar sign \
-    --key <path-to-platform.pk8> --cert <path-to-platform.x509.pem> \
-    --out signed.apk aligned.apk
+scripts/make-keystore.sh <path-to-platform.pk8> <path-to-platform.x509.pem> <dir>/platform.p12
+export PANEL_LED_KEYSTORE=<dir>/platform.p12
+export PANEL_LED_KEYSTORE_PASSWORD=$(cat <dir>/platform.p12.password)
+./gradlew :app:assembleRelease
+# app/build/outputs/apk/release/app-release.apk -- aligned and signed
 ```
 
-`apksigner` accepts a raw PKCS#8 key and X.509 certificate directly (`--key`/`--cert`); no keystore
-conversion needed.
+`PANEL_LED_KEY_ALIAS` defaults to `platform` (what the script names the key). Check the result
+against the vendor's certificate fingerprint with
+`apksigner verify --print-certs app/build/outputs/apk/release/app-release.apk`. The APK is
+signed with APK Signature Scheme v2; that was enough for the system-uid join on the Android 14
+panels this was tested on.
 
-**Never commit the key or certificate to this repo, or to any other git history.** Keep them
-outside any repository (e.g. `~/secrets/panel-led/`, permissions `600`), and point a build or
-release script at that path via an environment variable rather than a path hard-coded into a
-tracked file.
+**Never commit the key, the certificate, the keystore or its password to this repo, or to any
+other git history.** Keep them outside any repository (e.g. `~/secrets/panel-led/`, permissions
+`600`), and point the build at them via the environment variables above rather than a path
+hard-coded into a tracked file.
 
 ## Result, once correctly signed and installed
 

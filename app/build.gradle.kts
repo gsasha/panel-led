@@ -1,6 +1,6 @@
 // versionName is the only input; versionCode is derived from it:
 // MAJOR*1_000_000 + MINOR*10_000 + PATCH*100 + stage rank (alpha 10, beta 30, rc 50, final 90).
-val panelLedVersionName = "0.5.0-alpha"
+val panelLedVersionName = "0.6.0-alpha"
 
 fun versionCodeOf(name: String): Int {
     val m = Regex("""(\d+)\.(\d{1,2})\.(\d{1,2})(?:-(alpha|beta|rc)(?:\.(\d))?)?""").matchEntire(name)
@@ -27,6 +27,28 @@ android {
         versionCode = versionCodeOf(panelLedVersionName)
         // The panels are arm64 (RK3576); one ABI keeps the APK small.
         ndk { abiFilters += "arm64-v8a" }
+    }
+
+    // Optional release signing with the panel vendor's platform key (docs/vendor-signing.md). With
+    // PANEL_LED_KEYSTORE unset (anyone else's build) the release APK is simply left unsigned, as
+    // before. When it is set, `./gradlew assembleRelease` yields the aligned, signed APK in one step.
+    val keystorePath = System.getenv("PANEL_LED_KEYSTORE")
+    signingConfigs {
+        if (keystorePath != null) {
+            create("platform") {
+                val password = System.getenv("PANEL_LED_KEYSTORE_PASSWORD")
+                    ?: throw GradleException("PANEL_LED_KEYSTORE is set but PANEL_LED_KEYSTORE_PASSWORD is not")
+                storeFile = file(keystorePath)
+                storePassword = password
+                keyAlias = System.getenv("PANEL_LED_KEY_ALIAS") ?: "platform"
+                keyPassword = password
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            signingConfigs.findByName("platform")?.let { signingConfig = it }        }
     }
 
     externalNativeBuild {

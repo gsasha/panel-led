@@ -44,18 +44,24 @@ tap Save.
 ### Over adb
 
 ```
-# host / port / username / slug / enabled -- any subset, each extra optional
-adb shell am broadcast -n app.panelled/.ConfigReceiver -a app.panelled.action.SET_CONFIG \
-    --es host YOUR_BROKER_HOST --ei port 1883 --es user YOUR_MQTT_USERNAME \
-    --es slug living_room_panel --ez enabled true
+# host / port / username / slug / enabled -- any subset, set together or one at a time
+adb shell content update --uri content://app.panelled.config/config \
+    --bind host:s:YOUR_BROKER_HOST --bind port:i:1883 --bind user:s:YOUR_MQTT_USERNAME \
+    --bind slug:s:living_room_panel --bind enabled:b:true
 
-# the password -- never on a command line (shell history, `ps`): push a file, point at it, then
-# delete the file yourself (see the limitation below, this app cannot reliably do that part)
-adb push mqtt_password.txt /data/local/tmp/panelled_mqtt_password
-adb shell am broadcast -n app.panelled/.ConfigReceiver -a app.panelled.action.SET_CONFIG \
-    --es load_password_from /data/local/tmp/panelled_mqtt_password
-adb shell rm /data/local/tmp/panelled_mqtt_password
+# the password -- streamed from a file on YOUR machine over adb's stdin: it never appears on a
+# command line (shell history, `ps`) and is never written to a file on the device
+adb shell content write --uri content://app.panelled.config/password < mqtt_password.txt
+
+# read the stored config back (the password is never returned, only whether one is set)
+adb shell content query --uri content://app.panelled.config/config
 ```
+
+Trailing whitespace in the password file is trimmed, so a plain `echo`-style file with a final
+newline works. An empty file clears the password. Over adb this provider is the only way in: it
+refuses every caller whose uid is not the adb shell (or root), so no other app installed on the
+panel can read or change the config (verified on a real panel: an ordinary app's query, update and
+password write were all refused with a `SecurityException`, and the config stayed as it was).
 
 `slug` becomes part of every MQTT topic and Home Assistant's discovery id for this panel -- use
 something that uniquely identifies it if you have more than one panel running this app, since two
@@ -140,23 +146,28 @@ different, wrong curve in between them. The exact value (2.2) is the standard st
 this class of correction, not something measured against this panel's specific diffuser and LEDs;
 it's worth re-tuning by eye if it still looks off in either direction.
 
-## Two known limitations
+## Why the adb config interface is a content provider
 
-1. **The adb-only receiver is reachable by any installed app, not only by adb.** On the Android
-   builds this was tested against, `adb shell am broadcast -n` only reaches a manifest receiver
-   that is exported with no `android:permission` at all -- `exported="false"` refused shell
-   exactly like it refuses every other app, and so did a `protectionLevel="normal"` permission and
-   a `protectionLevel="signature"` one tied to this app's own key (all three tested directly, not
-   inferred). There is no tested configuration that lets adb in while keeping other apps out. This
-   is fine on a dedicated kiosk panel that runs nothing else; a real gap if the device runs other
-   apps too, since any of them could send this broadcast.
-2. **The pushed password file usually cannot be deleted by this app.** `/data/local/tmp` (the
-   natural `adb push` target) is sticky-bit protected: only the file's owner (`shell`, since
-   `adb push` creates it) or root may unlink it there, not this app's uid, even though it can read
-   the file fine. The password is read and stored correctly; the file is not reliably removed
-   afterward. **Always run `adb shell rm <file>` yourself right after the broadcast** -- it's a
-   required step, not a cleanup nicety, and the app logs a warning in `logcat` (tag
-   `ConfigReceiver`) when its own delete attempt fails, so this is visible rather than silent.
+Versions up to 0.5.0-alpha took config through a broadcast receiver, which had two real problems,
+both gone in 0.6.0-alpha:
+
+1. **Any installed app could use it.** On the Android builds tested, `adb shell am broadcast -n`
+   only reaches a manifest receiver that is exported with no `android:permission` at all:
+   `exported="false"` refused shell exactly like it refuses every other app, and so did a
+   `protectionLevel="normal"` and a `protectionLevel="signature"` permission (all three tested
+   directly). So no receiver setup admitted adb while keeping other apps out. A content provider
+   can check its caller's uid in code (`Binder.getCallingUid()`), so it is exported but answers
+   only the adb shell (2000) or root (0). `content` run from `adb shell` really does arrive as
+   uid 2000, and an ordinary app arrives as its own uid and is refused, both seen on a real panel.
+2. **The password file could not be removed.** The receiver read a file pushed to
+   `/data/local/tmp`, a sticky-bit directory where only the file's owner (`shell`) may delete, so
+   the app could not delete it and the plaintext password stayed on the device unless the operator
+   removed it. `content write` streams the file from your machine through adb's stdin straight
+   into the provider, so the password is never a file on the device or a command-line argument.
+
+What this does not defend against: anything that already has the adb shell or root on the panel
+can still read the stored config (the password is stored in the app's private preferences, not
+encrypted), and an app signed with the same platform key shares the app's uid.
 
 ## What "verified end to end" means here
 

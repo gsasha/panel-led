@@ -53,7 +53,7 @@ public class MqttBridgeService extends Service {
     private final AtomicLong generation = new AtomicLong();
     private MqttClient client;
 
-    /** Call after any config change (SettingsActivity, ConfigReceiver, boot): starts, restarts or
+    /** Call after any config change (SettingsActivity, ConfigProvider, boot): starts, restarts or
      * stops the bridge to match the current, now-current BridgeConfig. */
     static void applyConfigChange(Context ctx) {
         BridgeConfig cfg = new BridgeConfig(ctx);
