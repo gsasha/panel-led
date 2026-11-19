@@ -189,6 +189,10 @@ public class MqttBridgeService extends Service {
         try {
             JSONObject state = new JSONObject();
             state.put("state", on ? "ON" : "OFF");
+            // Required alongside supported_color_modes in the discovery config (above this
+            // channel's only mode is "rgb"): without it HA has nothing telling it which of a
+            // light's supported modes a given state update is reporting in.
+            state.put("color_mode", "rgb");
             state.put("brightness", brightness);
             JSONObject c = new JSONObject();
             c.put("r", (color >> 16) & 0xFF);
@@ -229,8 +233,13 @@ public class MqttBridgeService extends Service {
             d.put("availability_topic", availabilityTopic(cfg));
             d.put("payload_available", "online");
             d.put("payload_not_available", "offline");
-            d.put("brightness", true);
-            d.put("rgb", true);
+            // Found live, not assumed: the legacy "brightness"/"rgb" boolean flags (what the HA
+            // docs show as the simplest JSON-schema example) are deprecated and only half-honored
+            // by the HA version actually running here -- the entity came up with
+            // supported_color_modes == ["brightness"], silently losing color entirely, no error
+            // anywhere. "rgb" implies brightness in the current schema; do not add "brightness"
+            // alongside it, which HA logs as invalid (two color modes where one is redundant).
+            d.put("supported_color_modes", new org.json.JSONArray().put("rgb"));
             JSONObject device = new JSONObject();
             device.put("identifiers", new org.json.JSONArray().put("panelled_" + cfg.slug()));
             device.put("name", cfg.slug());
