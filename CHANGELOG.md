@@ -3,6 +3,14 @@
 This project is pre-1.0; versions below `1.0.0` carry no binary-compatibility promise for the
 inter-app API (see [`docs/api.md`](docs/api.md#versioning)) and no stability promise in general.
 
+## 0.6.1-alpha -- the light bars are `Backlight`, category `diagnostic`
+
+The Home Assistant entity is now named **Backlight** (was "Side light") and is published with
+`entity_category: diagnostic`, so the bars stay out of area- and device-wide "turn off the lights"
+calls and out of the default light lists; an explicit `entity_id` still controls them. The
+`unique_id` is unchanged, so an existing entity keeps its history and id. A name you set in
+Home Assistant's entity registry wins over the published name.
+
 ## 0.6.0-alpha -- adb config is adb-only; Gradle signing
 
 **Breaking: the adb config interface changed.** The `ConfigReceiver` broadcast is gone, replaced by

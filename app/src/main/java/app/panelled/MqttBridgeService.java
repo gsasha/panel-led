@@ -384,7 +384,11 @@ public class MqttBridgeService extends Service {
     private String discoveryPayload(BridgeConfig cfg) {
         try {
             JSONObject d = new JSONObject();
-            d.put("name", "Side light");
+            d.put("name", "Backlight");
+            // The bars are decoration/status, not room lighting: diagnostic keeps them out of area and
+            // device-wide "turn off the lights" sweeps and out of the default lamp lists. An explicit
+            // entity_id still reaches them.
+            d.put("entity_category", "diagnostic");
             d.put("unique_id", "panelled_" + cfg.slug() + "_led");
             d.put("schema", "json");
             d.put("command_topic", commandTopic(cfg));
